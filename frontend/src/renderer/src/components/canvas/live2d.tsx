@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { memo, useEffect } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { useLive2DConfig } from "@/context/live2d-config-context";
 import { useIpcHandlers } from "@/hooks/utils/use-ipc-handlers";
 import { useLive2DModel } from "@/hooks/canvas/use-live2d-model";
@@ -17,16 +17,31 @@ export const Live2D = memo(({ isPet, modelIndex = 0 }: Live2DProps): JSX.Element
   const { modelInfo, secondModelInfo, isLoading } = useLive2DConfig();
   const { forceIgnoreMouse } = useForceIgnoreMouse();
 
-  // Register IPC handlers here as Live2D is a persistent component in the pet mode
-  useIpcHandlers({ isPet });
+  const currentModelInfo = modelIndex === 0 ? modelInfo : secondModelInfo;
 
-  const { canvasRef, appRef, modelRef, containerRef } = useLive2DModel({
+  // Memoize props to prevent unnecessary re-renders
+  const ipcHandlersProps = useMemo(() => ({ isPet }), [isPet]);
+  useIpcHandlers(ipcHandlersProps);
+
+  const live2DModelProps = useMemo(
+    () => ({
+      isPet,
+      modelInfo: currentModelInfo,
+      modelIndex,
+    }),
+    [isPet, currentModelInfo, modelIndex]
+  );
+  const { canvasRef, appRef, modelRef, containerRef } = useLive2DModel(live2DModelProps);
+
+  // Pass individual arguments to useLive2DResize
+  useLive2DResize(
+    containerRef,
+    appRef,
+    modelRef,
+    currentModelInfo,
     isPet,
-    modelInfo: modelIndex === 0 ? modelInfo : secondModelInfo,
-    modelIndex,
-  });
-
-  useLive2DResize(containerRef, appRef, modelRef, modelIndex === 0 ? modelInfo : secondModelInfo, isPet, modelIndex);
+    modelIndex
+  );
 
   // Export these hooks for global use
   useInterrupt();

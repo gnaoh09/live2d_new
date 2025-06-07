@@ -42,15 +42,43 @@ export const useLive2DModel = ({
   const { setAiState, aiState } = useAiState();
   const [isModelReady, setIsModelReady] = useState(false);
   const { forceIgnoreMouse } = useForceIgnoreMouse();
+  const modelUrlRef = useRef<string | undefined>(undefined);
+
+  const stableProps = useRef({
+    isPet,
+    modelInfo,
+    modelIndex,
+    setCurrentModel,
+    setSecondModel,
+    setIsLoading,
+    setAiState,
+    aiState,
+    forceIgnoreMouse
+  });
+
+  useEffect(() => {
+    stableProps.current = {
+      isPet,
+      modelInfo,
+      modelIndex,
+      setCurrentModel,
+      setSecondModel,
+      setIsLoading,
+      setAiState,
+      aiState,
+      forceIgnoreMouse
+    };
+  });
 
   // Cleanup function for Live2D model
   const cleanupModel = useCallback(() => {
     if (modelRef.current) {
       modelRef.current.removeAllListeners();
-      if (modelIndex === 0) {
-        setCurrentModel(null);
+      const { modelIndex: mi, setCurrentModel: setCM, setSecondModel: setSM } = stableProps.current;
+      if (mi === 0) {
+        setCM(null);
       } else {
-        setSecondModel(null);
+        setSM(null);
       }
       if (appRef.current) {
         appRef.current.stage.removeChild(modelRef.current);
@@ -64,7 +92,7 @@ export const useLive2DModel = ({
       }
     }
     setIsModelReady(false);
-  }, [setCurrentModel, setSecondModel, modelIndex]);
+  }, []);
 
   // Cleanup function for PIXI application
   const cleanupApp = useCallback(() => {
@@ -119,7 +147,7 @@ export const useLive2DModel = ({
 
   const setupModel = useCallback(
     async (model: Live2DModel) => {
-      if (!appRef.current || !modelInfo) return;
+      if (!appRef.current) return;
 
       if (modelRef.current) {
         modelRef.current.removeAllListeners();
@@ -133,10 +161,11 @@ export const useLive2DModel = ({
       }
 
       modelRef.current = model;
-      if (modelIndex === 0) {
-        setCurrentModel(model);
+      const { modelIndex: mi, setCurrentModel: setCM, setSecondModel: setSM } = stableProps.current;
+      if (mi === 0) {
+        setCM(model);
       } else {
-        setSecondModel(model);
+        setSM(model);
       }
       appRef.current.stage.addChild(model);
 
@@ -144,79 +173,105 @@ export const useLive2DModel = ({
       model.cursor = "pointer";
       setIsModelReady(true);
     },
-    [setCurrentModel, setSecondModel, modelIndex],
+    []
   );
 
   const setupModelSizeAndPosition = useCallback(() => {
     if (!modelRef.current) return;
     setModelSize(modelRef.current, kScaleRef.current);
 
-    const { width, height } = isPet
+    const { isPet: ip, modelInfo: mi } = stableProps.current;
+    const { width, height } = ip
       ? { width: window.innerWidth, height: window.innerHeight }
       : containerRef.current?.getBoundingClientRect() || {
         width: 0,
         height: 0,
       };
 
-    resetModelPosition(modelRef.current, width, height, modelInfo?.initialXshift, modelInfo?.initialYshift);
-  }, [modelInfo?.initialXshift, modelInfo?.initialYshift]);
+    resetModelPosition(modelRef.current, width, height, mi?.initialXshift, mi?.initialYshift);
+  }, []);
 
   // Load Live2D model with configuration
   const loadModel = useCallback(async () => {
-    if (!modelInfo?.url || !appRef.current) return;
+    const { modelInfo: mi, setIsLoading: setIL, setAiState: setAS, aiState: as } = stableProps.current;
+    if (!mi?.url || !appRef.current) {
+      console.log('Cannot load model:', {
+        hasUrl: !!mi?.url,
+        hasApp: !!appRef.current
+      });
+      return;
+    }
+    if (loadingRef.current) {
+      console.log('Model is already loading');
+      return;
+    }
+    if (modelUrlRef.current === mi.url && modelRef.current) {
+      console.log('Model URL has not changed, skipping load');
+      return;
+    }
 
-    if (loadingRef.current) return; // Prevent multiple simultaneous loads
-
-    console.log("Loading model:", modelInfo.url);
+    console.log('Loading model:', {
+      url: mi.url,
+      modelInfo: {
+        ...mi,
+        url: mi.url
+      }
+    });
+    modelUrlRef.current = mi.url;
 
     try {
       loadingRef.current = true;
-      setIsLoading(true);
-      setAiState(AiStateEnum.LOADING);
+      setIL(true);
+      setAS(AiStateEnum.LOADING);
 
-      // Initialize Live2D model with settings
-      const model = await Live2DModel.from(modelInfo.url, {
+      console.log('Creating Live2D model with config:', {
         autoHitTest: true,
-        autoFocus: modelInfo.pointerInteractive ?? false,
+        autoFocus: mi.pointerInteractive ?? false,
+        autoUpdate: true,
+        motionPreload: MotionPreloadStrategy.IDLE,
+        idleMotionGroup: mi.idleMotionGroupName
+      });
+
+      const model = await Live2DModel.from(mi.url, {
+        autoHitTest: true,
+        autoFocus: mi.pointerInteractive ?? false,
         autoUpdate: true,
         ticker: PIXI.Ticker.shared,
         motionPreload: MotionPreloadStrategy.IDLE,
-        idleMotionGroup: modelInfo.idleMotionGroupName,
+        idleMotionGroup: mi.idleMotionGroupName
       });
 
+      console.log('Model created successfully, setting up...');
       await setupModel(model);
+      console.log('Model setup complete');
     } catch (error) {
-      console.error("Failed to load Live2D model:", error);
+      console.error('Failed to load Live2D model:', error);
       toaster.create({
         title: `Failed to load Live2D model: ${error}`,
-        type: "error",
-        duration: 2000,
+        type: 'error',
+        duration: 2000
       });
     } finally {
       loadingRef.current = false;
-      setIsLoading(false);
-      setAiState(AiStateEnum.IDLE);
+      setIL(false);
+      if (stableProps.current.aiState === AiStateEnum.LOADING) {
+        setAS(AiStateEnum.IDLE);
+      }
     }
-  }, [
-    modelInfo?.url,
-    modelInfo?.pointerInteractive,
-    modelInfo?.idleMotionGroupName,
-    setIsLoading,
-    setupModel,
-    setAiState,
-  ]);
+  }, [setupModel]);
 
   const handleTapMotion = useCallback(
     (model: Live2DModel, x: number, y: number) => {
-      if (!modelInfo?.tapMotions) return;
+      const { modelInfo: mi } = stableProps.current;
+      if (!mi?.tapMotions) return;
 
-      console.log("handleTapMotion", modelInfo?.tapMotions);
+      console.log('handleTapMotion', mi?.tapMotions);
       // Convert global coordinates to model's local coordinates
       const localPos = model.toLocal(new PIXI.Point(x, y));
       const hitAreas = model.hitTest(localPos.x, localPos.y);
 
       const foundMotion = hitAreas.find((area) => {
-        const motionGroup = modelInfo?.tapMotions?.[area];
+        const motionGroup = mi?.tapMotions?.[area];
         if (motionGroup) {
           console.log(`Found motion group for area ${area}:`, motionGroup);
           playRandomMotion(model, motionGroup);
@@ -225,12 +280,12 @@ export const useLive2DModel = ({
         return false;
       });
 
-      if (!foundMotion && Object.keys(modelInfo.tapMotions).length > 0) {
-        const mergedMotions = getMergedMotionGroup(modelInfo.tapMotions);
+      if (!foundMotion && Object.keys(mi.tapMotions).length > 0) {
+        const mergedMotions = getMergedMotionGroup(mi.tapMotions);
         playRandomMotion(model, mergedMotions);
       }
     },
-    [modelInfo?.tapMotions],
+    []
   );
 
   const setupModelInteractions = useCallback(
@@ -246,8 +301,9 @@ export const useLive2DModel = ({
       model.removeAllListeners("pointerup");
       model.removeAllListeners("pointerupoutside");
 
+      const { forceIgnoreMouse: fim, isPet: ip } = stableProps.current;
       // If force ignore mouse is enabled, disable interaction
-      if (forceIgnoreMouse && isPet) {
+      if (fim && ip) {
         model.interactive = false;
         model.cursor = "default";
         return;
@@ -263,7 +319,7 @@ export const useLive2DModel = ({
       let isTap = false;
       const dragThreshold = 5;
 
-      if (isPet) {
+      if (ip) {
         model.on("pointerenter", () => {
           (window.api as any)?.updateComponentHover("live2d-model", true);
         });
@@ -318,22 +374,23 @@ export const useLive2DModel = ({
         dragging = false;
       });
     },
-    [isPet, forceIgnoreMouse, handleTapMotion],
+    [handleTapMotion]
   );
 
   // Reset expression when AI state changes to IDLE (like finishing a conversation)
   useEffect(() => {
     if (aiState === AiStateEnum.IDLE) {
-      console.log("defaultEmotion: ", modelInfo?.defaultEmotion);
-      if (modelInfo?.defaultEmotion) {
+      const { modelInfo: mi } = stableProps.current;
+      console.log('defaultEmotion: ', mi?.defaultEmotion);
+      if (mi?.defaultEmotion) {
         modelRef.current?.internalModel.motionManager.expressionManager?.setExpression(
-          modelInfo.defaultEmotion,
+          mi.defaultEmotion
         );
       } else {
         modelRef.current?.internalModel.motionManager.expressionManager?.resetExpression();
       }
     }
-  }, [modelRef.current, aiState, modelInfo?.defaultEmotion]);
+  }, [aiState]);
 
   // Load model when URL changes and cleanup on unmount
   useEffect(() => {

@@ -20,6 +20,19 @@ import { useLocalStorage } from '@/hooks/utils/use-local-storage';
 import { useGroup } from '@/context/group-context';
 import { useInterrupt } from '@/hooks/utils/use-interrupt';
 
+// Extend the MessageEvent type to include all possible message properties
+interface ExtendedMessageEvent extends MessageEvent {
+  success?: boolean;
+  message?: string;
+  members?: any[];
+  is_owner?: boolean;
+  histories?: HistoryInfo[];
+  files?: string[];
+  actions?: {
+    expressions?: Record<string, number>;
+  };
+}
+
 function WebSocketHandler({ children }: { children: React.ReactNode }) {
   const [wsState, setWsState] = useState<string>('CLOSED');
   const [wsUrl, setWsUrl] = useLocalStorage<string>('wsUrl', defaultWsUrl);
@@ -95,7 +108,7 @@ function WebSocketHandler({ children }: { children: React.ReactNode }) {
     }
   }, [setAiState, clearResponse, setForceNewMessage, startMic, stopMic]);
 
-  const handleWebSocketMessage = useCallback((message: MessageEvent) => {
+  const handleWebSocketMessage = useCallback((message: ExtendedMessageEvent) => {
     console.log('Received message from server:', message);
     switch (message.type) {
       case 'control':
@@ -105,10 +118,13 @@ function WebSocketHandler({ children }: { children: React.ReactNode }) {
         break;
       case 'set-model-and-conf':
         setAiState('loading');
+        // Unload existing models first to ensure a reload even if the URL is the same.
+        setModelInfo(undefined);
+        setSecondModelInfo(undefined);
         if (message.conf_name) {
           setConfName(message.conf_name);
         }
-        if (message.conf_uid) {
+        if (message.conf_uid)  {
           setConfUid(message.conf_uid);
           console.log('confUid', message.conf_uid);
         }
@@ -117,16 +133,20 @@ function WebSocketHandler({ children }: { children: React.ReactNode }) {
         }
         if (message.model_info) {
           const modelInfo = { ...message.model_info };
+          console.log('Original model URL:', modelInfo.url);
           if (!modelInfo.url.startsWith("http")) {
             modelInfo.url = baseUrl + modelInfo.url;
           }
+          console.log('Final model URL:', modelInfo.url);
           setPendingModelInfo(modelInfo);
         }
         if (message.second_model_info) {
           const secondModelInfo = { ...message.second_model_info };
+          console.log('Original second model URL:', secondModelInfo.url);
           if (!secondModelInfo.url.startsWith("http")) {
             secondModelInfo.url = baseUrl + secondModelInfo.url;
           }
+          console.log('Final second model URL:', secondModelInfo.url);
           setPendingSecondModelInfo(secondModelInfo);
         }
         setAiState('idle');
@@ -160,7 +180,10 @@ function WebSocketHandler({ children }: { children: React.ReactNode }) {
         break;
       case 'background-files':
         if (message.files) {
-          bgUrlContext?.setBackgroundFiles(message.files);
+          bgUrlContext?.setBackgroundFiles(message.files.map(file => ({
+            name: file.split('/').pop() || file,
+            url: file
+          })));
         }
         break;
       case 'audio':
@@ -173,7 +196,7 @@ function WebSocketHandler({ children }: { children: React.ReactNode }) {
             volumes: message.volumes || [],
             sliceLength: message.slice_length || 0,
             displayText: message.display_text || null,
-            expressions: message.actions?.expressions || null,
+            expressions: message.actions?.expressions ? Object.values(message.actions.expressions) : null,
             forwarded: message.forwarded || false,
           });
         }

@@ -111,7 +111,6 @@ export const Live2DConfigContext = createContext<Live2DConfigState | null>(null)
  */
 export function Live2DConfigProvider({ children }: { children: React.ReactNode }) {
   const { confUid } = useConfig();
-
   const [isPet, setIsPet] = useState(false);
   const [isLoading, setIsLoading] = useState(DEFAULT_CONFIG.isLoading);
 
@@ -122,23 +121,17 @@ export function Live2DConfigProvider({ children }: { children: React.ReactNode }
     return () => unsubscribe?.();
   }, []);
 
-  const getStorageKey = (uid: string, isPetMode: boolean, isSecondModel: boolean) => 
-    `${uid}_${isPetMode ? "pet" : "window"}${isSecondModel ? "_second" : ""}`;
+  const getStorageKey = useCallback((uid: string, isPetMode: boolean, isSecondModel: boolean) => 
+    `${uid}_${isPetMode ? "pet" : "window"}${isSecondModel ? "_second" : ""}`, []);
 
   const [modelInfo, setModelInfoState] = useLocalStorage<ModelInfo | undefined>(
     "modelInfo",
-    DEFAULT_CONFIG.modelInfo,
-    {
-      filter: (value) => (value ? { ...value, url: "" } : value),
-    },
+    DEFAULT_CONFIG.modelInfo
   );
 
   const [secondModelInfo, setSecondModelInfoState] = useLocalStorage<ModelInfo | undefined>(
     "secondModelInfo",
-    DEFAULT_CONFIG.secondModelInfo,
-    {
-      filter: (value) => (value ? { ...value, url: "" } : value),
-    },
+    DEFAULT_CONFIG.secondModelInfo
   );
 
   const [scaleMemory, setScaleMemory] = useLocalStorage<Record<string, number>>(
@@ -146,19 +139,11 @@ export function Live2DConfigProvider({ children }: { children: React.ReactNode }
     {},
   );
 
-  /**
-   * Updates the Live2D model information and manages model scale persistence
-   * @param info - The new model information to be set
-   * @param isSecondModel - Whether this is for the second model
-   * @returns void
-   */
-  const setModelInfo = (info: ModelInfo | undefined, isSecondModel = false) => {
-    // Skip if no model URL is provided (avoid localStorage modelInfo remaining)
+  const setModelInfo = useCallback((info: ModelInfo | undefined, isSecondModel = false) => {
     if (!info?.url) {
       return;
     }
 
-    // Validate configuration UID exists
     if (!confUid) {
       console.warn("Attempting to set model info without confUid");
       toaster.create({
@@ -172,43 +157,37 @@ export function Live2DConfigProvider({ children }: { children: React.ReactNode }
     const currentInfo = isSecondModel ? secondModelInfo : modelInfo;
     const setInfoState = isSecondModel ? setSecondModelInfoState : setModelInfoState;
 
-    // Prevent unnecessary updates if model info hasn't changed
     if (JSON.stringify(info) === JSON.stringify(currentInfo)) {
       return;
     }
 
     if (info) {
-      // Generate storage key based on confUid and mode
       const storageKey = getStorageKey(confUid, isPet, isSecondModel);
       let finalScale: number;
 
-      // Retrieve stored scale
       const storedScale = scaleMemory[storageKey];
       if (storedScale !== undefined) {
         finalScale = storedScale;
       } else {
         finalScale = Number(info.kScale || 0.001);
-        // If no stored scale, store the initial scale in memory
         setScaleMemory((prev) => ({
           ...prev,
           [storageKey]: finalScale,
         }));
       }
 
-      console.log("finalScale", finalScale);
-
       setInfoState({
         ...info,
         kScale: finalScale,
       });
     }
-  };
+  }, [confUid, isPet, modelInfo, secondModelInfo, scaleMemory, getStorageKey, setSecondModelInfoState, setModelInfoState, setScaleMemory]);
 
-  const setSecondModelInfo = (info: ModelInfo | undefined) => {
+  const setSecondModelInfo = useCallback((info: ModelInfo | undefined) => {
     setModelInfo(info, true);
-  };
+  }, [setModelInfo]);
 
-  const updateModelScale = (newScale: number) => {
+  const updateModelScale = useCallback((newScale: number) => {
     if (!modelInfo || !confUid) return;
 
     const storageKey = getStorageKey(confUid, isPet, false);
@@ -224,9 +203,9 @@ export function Live2DConfigProvider({ children }: { children: React.ReactNode }
         kScale: newScale,
       };
     });
-  };
+  }, [confUid, isPet, modelInfo, getStorageKey, setScaleMemory, setModelInfoState]);
 
-  const updateSecondModelScale = (newScale: number) => {
+  const updateSecondModelScale = useCallback((newScale: number) => {
     if (!secondModelInfo || !confUid) return;
 
     const storageKey = getStorageKey(confUid, isPet, true);
@@ -242,9 +221,8 @@ export function Live2DConfigProvider({ children }: { children: React.ReactNode }
         kScale: newScale,
       };
     });
-  };
+  }, [confUid, isPet, secondModelInfo, getStorageKey, setScaleMemory, setSecondModelInfoState]);
 
-  // Memoized context value
   const contextValue = useMemo(
     () => ({
       modelInfo,
